@@ -13,13 +13,30 @@ const options = {
 };
 
 for (let i = 0; i < args.length; i++) {
-    if (args[i] === '--start' && args[i + 1]) options.start = parseInt(args[i + 1]);
-    if (args[i] === '--end' && args[i + 1]) options.end = parseInt(args[i + 1]);
-    if (args[i] === '--status' && args[i + 1]) {
+    const arg = args[i];
+    if (arg === '--start' && args[i + 1]) {
+        options.start = parseInt(args[i + 1]);
+        i++;
+    } else if (arg === '--end' && args[i + 1]) {
+        options.end = parseInt(args[i + 1]);
+        i++;
+    } else if (arg === '--status' && args[i + 1]) {
         if (args[i + 1].toLowerCase() === 'all') {
             options.status = 'all';
         } else {
             options.status = args[i + 1].split(',').map(s => s.trim());
+        }
+        i++;
+    }
+}
+
+// Fallback: If no flags were used but arguments were provided, try to guess
+if (!options.start && !options.end && args.length >= 2) {
+    if (!isNaN(args[0]) && !isNaN(args[1])) {
+        options.start = parseInt(args[0]);
+        options.end = parseInt(args[1]);
+        if (args[2]) {
+             options.status = args[2].toLowerCase() === 'all' ? 'all' : args[2].split(',').map(s => s.trim());
         }
     }
 }

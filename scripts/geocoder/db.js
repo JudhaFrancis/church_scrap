@@ -80,6 +80,18 @@ async function getStatusCounts(connection, options) {
     return counts;
 }
 
+async function fetchPreviousBlockCoords(connection, block, district) {
+    const sql = `
+        SELECT latitude, longitude 
+        FROM bihar_iif_data 
+        WHERE block = ? AND district = ? 
+        AND latitude IS NOT NULL 
+        LIMIT 1
+    `;
+    const [rows] = await connection.query(sql, [block, district]);
+    return rows.length > 0 ? rows[0] : null;
+}
+
 module.exports = {
     getConnection,
     fetchRecords,
@@ -87,5 +99,6 @@ module.exports = {
     updateRecordSuccess,
     updateRecordMulti,
     updateRecordFailed,
-    getStatusCounts
+    getStatusCounts,
+    fetchPreviousBlockCoords
 };
