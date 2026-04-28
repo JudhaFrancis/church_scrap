@@ -5,7 +5,7 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "import": "node scripts/import_data.js",
-    "geocode": "node scripts/google_direct_geocode.js",
+    "geocode": "node scripts/geocoder/index.js",
     "migrate": "node scripts/migrate_db.js",
     "verify": "node scripts/verify_import.js"
   },
