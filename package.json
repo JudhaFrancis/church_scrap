@@ -1,0 +1,23 @@
+{
+  "name": "church_scrap",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "import": "node scripts/import_data.js",
+    "geocode": "node scripts/google_direct_geocode.js",
+    "migrate": "node scripts/migrate_db.js",
+    "verify": "node scripts/verify_import.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "axios": "^1.14.0",
+    "csv-parser": "^3.2.0",
+    "dotenv": "^17.4.1",
+    "mysql2": "^3.20.0",
+    "puppeteer": "^24.40.0"
+  }
+}
