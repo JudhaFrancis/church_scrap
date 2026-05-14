@@ -3,6 +3,7 @@ const mysql = require('mysql2/promise');
 const csv = require('csv-parser');
 require('dotenv').config();
 
+const DB_TABLE = process.env.DB_TABLE;
 const CSV_FILE = 'csv_raw_data/bihar iif data - bihar filter data.csv';
 const BATCH_SIZE = 500;
 
@@ -21,7 +22,7 @@ async function run() {
 
         // Verify table is empty or handle truncation if not already done by user
         // The user said they already truncated, but we'll double check.
-        const [rows] = await connection.execute('SELECT COUNT(*) as count FROM bihar_iif_data');
+        const [rows] = await connection.execute(`SELECT COUNT(*) as count FROM ${DB_TABLE}`);
         console.log(`Current record count: ${rows[0].count}`);
 
         let batch = [];
@@ -31,7 +32,7 @@ async function run() {
             if (data.length === 0) return;
 
             const query = `
-                INSERT INTO bihar_iif_data (
+                INSERT INTO ${DB_TABLE} (
                     id, state, country, district, block, \`Village/Town Name\`,
                     \`Gath Type\`, MC, HC, PC, AV, EV,
                     \`Church/Orgn Name\`, \`Pastor/Leader Name\`, \`Comments\`,

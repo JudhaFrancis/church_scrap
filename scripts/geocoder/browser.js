@@ -45,10 +45,16 @@ async function searchMaps(page, query, targetState, verifyText = null) {
 
         const coords = await extractCoords(page);
         if (coords) {
-            const verification = await page.evaluate((state, vText) => {
+            const verification = await page.evaluate((state, vTexts) => {
                 const text = document.body.innerText.toLowerCase();
                 const stateMatch = text.includes(state.toLowerCase());
-                const textMatch = vText ? text.includes(vText.toLowerCase()) : true;
+                
+                let textMatch = true;
+                if (vTexts) {
+                    const targets = Array.isArray(vTexts) ? vTexts : [vTexts];
+                    textMatch = targets.every(t => text.includes(t.toLowerCase()));
+                }
+                
                 return { stateMatch, textMatch };
             }, targetState, verifyText);
 

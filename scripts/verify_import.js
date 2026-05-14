@@ -1,6 +1,8 @@
 const mysql = require('mysql2/promise');
 require('dotenv').config();
 
+const DB_TABLE = process.env.DB_TABLE;
+
 async function verify() {
     let connection;
     try {
@@ -14,16 +16,16 @@ async function verify() {
 
         console.log('--- Verification Report ---');
 
-        const [total] = await connection.query('SELECT COUNT(*) as count FROM bihar_iif_data');
+        const [total] = await connection.query(`SELECT COUNT(*) as count FROM ${DB_TABLE}`);
         console.log(`Total rows in table: ${total[0].count}`);
 
-        const [statusCounts] = await connection.query('SELECT status, COUNT(*) as count FROM bihar_iif_data GROUP BY status');
+        const [statusCounts] = await connection.query(`SELECT status, COUNT(*) as count FROM ${DB_TABLE} GROUP BY status`);
         console.log('Status Breakdown:');
         statusCounts.forEach(row => {
             console.log(`  ${row.status}: ${row.count}`);
         });
 
-        const [sample] = await connection.query('SELECT id, state, country, district, block, village_name, latitude, longitude, status, ST_AsText(geometry) as geom_text FROM bihar_iif_data LIMIT 1');
+        const [sample] = await connection.query(`SELECT id, state, country, district, block, village_name, latitude, longitude, status, ST_AsText(geometry) as geom_text FROM ${DB_TABLE} LIMIT 1`);
         console.log('Sample Record:', sample[0]);
 
     } catch (error) {

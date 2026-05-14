@@ -16,7 +16,18 @@ function getDistance(lat1, lon1, lat2, lon2) {
     return d;
 }
 
+/**
+ * Check if coordinates are within Bihar boundaries
+ * Bihar roughly: Lat 24.2 to 27.5, Lon 83.3 to 88.3
+ */
+function isWithinBihar(lat, lon) {
+    const minLat = 24.2, maxLat = 27.5;
+    const minLon = 83.3, maxLon = 88.3;
+    return lat >= minLat && lat <= maxLat && lon >= minLon && lon <= maxLon;
+}
+
 module.exports = {
     sleep,
-    getDistance
+    getDistance,
+    isWithinBihar
 };

@@ -3,6 +3,7 @@ const mysql = require('mysql2/promise');
 const csv = require('csv-parser');
 require('dotenv').config();
 
+const DB_TABLE = process.env.DB_TABLE;
 const CSV_FILE = 'csv_raw_data/bihar iif data - bihar filter data.csv';
 const BATCH_SIZE = 100;
 
@@ -24,10 +25,10 @@ async function run() {
 
         const processBatch = async (rows) => {
             if (rows.length === 0) return;
-            
+
             const updates = rows.map(r => {
                 const query = `
-                    UPDATE bihar_iif_data SET 
+                    UPDATE ${DB_TABLE} SET 
                         \`Gath Type\` = ?,
                         \`MC\` = ?,
                         \`HC\` = ?,

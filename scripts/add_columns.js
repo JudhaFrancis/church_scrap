@@ -1,6 +1,8 @@
 const mysql = require('mysql2/promise');
 require('dotenv').config();
 
+const DB_TABLE = process.env.DB_TABLE;
+
 const TARGET_COLUMNS = [
     'Gath Type',
     'MC',
@@ -27,13 +29,13 @@ async function run() {
         console.log('Connected to database.');
 
         // 1. Check existing columns
-        const [columns] = await connection.execute('SHOW COLUMNS FROM bihar_iif_data');
+        const [columns] = await connection.execute(`SHOW COLUMNS FROM ${DB_TABLE}`);
         const columnNames = columns.map(c => c.Field);
 
         // 2. Rename village_name if it exists
         if (columnNames.includes('village_name')) {
             console.log('Renaming village_name to "Village/Town Name"...');
-            await connection.execute('ALTER TABLE bihar_iif_data CHANGE village_name `Village/Town Name` TEXT');
+            await connection.execute(`ALTER TABLE ${DB_TABLE} CHANGE village_name \`Village/Town Name\` TEXT`);
             console.log('Renamed successfully.');
         }
 
@@ -41,17 +43,17 @@ async function run() {
         for (const col of TARGET_COLUMNS) {
             if (!columnNames.includes(col)) {
                 console.log(`Adding column: ${col}...`);
-                await connection.execute(`ALTER TABLE bihar_iif_data ADD COLUMN \`${col}\` TEXT`);
+                await connection.execute(`ALTER TABLE ${DB_TABLE} ADD COLUMN \`${col}\` TEXT`);
             }
         }
 
         // 4. Reorder Church/Orgn Name
         console.log('Reordering Church/Orgn Name...');
-        await connection.execute('ALTER TABLE bihar_iif_data MODIFY `Church/Orgn Name` TEXT AFTER `Village/Town Name`');
-        
+        await connection.execute(`ALTER TABLE ${DB_TABLE} MODIFY \`Church/Orgn Name\` TEXT AFTER \`Village/Town Name\``);
+
         // 5. Set id to AUTO_INCREMENT
         console.log('Setting id to AUTO_INCREMENT...');
-        await connection.execute('ALTER TABLE bihar_iif_data MODIFY id INT AUTO_INCREMENT');
+        await connection.execute(`ALTER TABLE ${DB_TABLE} MODIFY id INT AUTO_INCREMENT`);
 
         console.log('Schema update complete.');
 

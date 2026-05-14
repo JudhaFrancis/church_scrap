@@ -1,12 +1,12 @@
 const mysql = require('mysql2/promise');
-const { DB_CONFIG } = require('./config');
+const { DB_CONFIG, DB_TABLE } = require('./config');
 
 async function getConnection() {
     return await mysql.createConnection(DB_CONFIG);
 }
 
 async function fetchRecords(connection, options) {
-    let sql = 'SELECT id, district, block, `Village/Town Name`, `Church/Orgn Name`, status FROM bihar_iif_data WHERE 1=1';
+    let sql = `SELECT id, district, block, \`Village/Town Name\`, \`Church/Orgn Name\`, status FROM ${DB_TABLE} WHERE 1=1`;
     const params = [];
 
     if (options.start) {
@@ -36,7 +36,7 @@ async function fetchRecords(connection, options) {
 
 async function checkExistingCoords(connection, lat, lon) {
     const [existing] = await connection.query(
-        'SELECT id FROM bihar_iif_data WHERE latitude = ? AND longitude = ? LIMIT 1',
+        `SELECT id FROM ${DB_TABLE} WHERE latitude = ? AND longitude = ? LIMIT 1`,
         [lat, lon]
     );
     return existing.length > 0;
@@ -44,7 +44,7 @@ async function checkExistingCoords(connection, lat, lon) {
 
 async function updateRecordSuccess(connection, id, result, source) {
     const query = `
-        UPDATE bihar_iif_data SET 
+        UPDATE ${DB_TABLE} SET 
             latitude = ?, 
             longitude = ?, 
             source = ?, 
@@ -58,20 +58,20 @@ async function updateRecordSuccess(connection, id, result, source) {
 
 async function updateRecordMulti(connection, id) {
     await connection.query(
-        'UPDATE bihar_iif_data SET status = "multi", error = "Multiple results found and skipped" WHERE id = ?',
+        `UPDATE ${DB_TABLE} SET status = "multi", error = "Multiple results found and skipped" WHERE id = ?`,
         [id]
     );
 }
 
 async function updateRecordFailed(connection, id, errorMsg) {
     await connection.query(
-        'UPDATE bihar_iif_data SET status = "failed", error = ? WHERE id = ?',
+        `UPDATE ${DB_TABLE} SET status = "failed", error = ? WHERE id = ?`,
         [errorMsg, id]
     );
 }
 
 async function getStatusCounts(connection, options) {
-    let checkSql = 'SELECT status, COUNT(*) as count FROM bihar_iif_data WHERE 1=1';
+    let checkSql = `SELECT status, COUNT(*) as count FROM ${DB_TABLE} WHERE 1=1`;
     const checkParams = [];
     if (options.start) { checkSql += ' AND id >= ?'; checkParams.push(options.start); }
     if (options.end) { checkSql += ' AND id <= ?'; checkParams.push(options.end); }
@@ -83,7 +83,7 @@ async function getStatusCounts(connection, options) {
 async function fetchPreviousBlockCoords(connection, block, district) {
     const sql = `
         SELECT latitude, longitude 
-        FROM bihar_iif_data 
+        FROM ${DB_TABLE} 
         WHERE block = ? AND district = ? 
         AND latitude IS NOT NULL 
         LIMIT 1

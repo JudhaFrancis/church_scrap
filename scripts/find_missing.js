@@ -1,6 +1,8 @@
 const mysql = require('mysql2/promise');
 require('dotenv').config();
 
+const DB_TABLE = process.env.DB_TABLE;
+
 async function check() {
     let connection;
     try {
@@ -12,10 +14,10 @@ async function check() {
             port: parseInt(process.env.DB_PORT) || 3306
         });
 
-        const [rows] = await connection.query('SELECT MIN(id) as first_missing FROM bihar_iif_data_1 WHERE status = "missing"');
+        const [rows] = await connection.query(`SELECT MIN(id) as first_missing FROM ${DB_TABLE} WHERE status = "missing"`);
         console.log('First missing ID:', rows[0].first_missing);
 
-        const [sample] = await connection.query('SELECT id, status FROM bihar_iif_data_1 WHERE status = "missing" LIMIT 10');
+        const [sample] = await connection.query(`SELECT id, status FROM ${DB_TABLE} WHERE status = "missing" LIMIT 10`);
         console.log('Sample missing records:');
         console.table(sample);
 

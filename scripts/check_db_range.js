@@ -1,6 +1,8 @@
 const mysql = require('mysql2/promise');
 require('dotenv').config();
 
+const DB_TABLE = process.env.DB_TABLE;
+
 async function check() {
     let connection;
     try {
@@ -12,11 +14,11 @@ async function check() {
             port: parseInt(process.env.DB_PORT) || 3306
         });
 
-        const [rows] = await connection.query('SELECT id, status FROM bihar_iif_data_1 WHERE id >= 1 AND id <= 100');
+        const [rows] = await connection.query(`SELECT id, status FROM ${DB_TABLE} WHERE id >= 1 AND id <= 100`);
         console.log('Statuses for IDs 1-100:');
         console.table(rows);
 
-        const [missing] = await connection.query('SELECT COUNT(*) as count FROM bihar_iif_data_1 WHERE id >= 1 AND id <= 100 AND status = "missing"');
+        const [missing] = await connection.query(`SELECT COUNT(*) as count FROM ${DB_TABLE} WHERE id >= 1 AND id <= 100 AND status = "missing"`);
         console.log('Count of "missing" in IDs 1-100:', missing[0].count);
 
     } catch (error) {

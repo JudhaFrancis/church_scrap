@@ -3,6 +3,7 @@ const mysql = require('mysql2/promise');
 const csv = require('csv-parser');
 require('dotenv').config();
 
+const DB_TABLE = process.env.DB_TABLE;
 const BATCH_SIZE = 500;
 const CSV_FILE = 'bihar iif data - bihar filter data.csv';
 
@@ -20,9 +21,9 @@ async function run() {
         console.log('Connected to MySQL database.');
 
         // 1. Recreate Table with new schema
-        await connection.query('DROP TABLE IF EXISTS bihar_iif_data');
+        await connection.query(`DROP TABLE IF EXISTS ${DB_TABLE}`);
         const createTableQuery = `
-            CREATE TABLE bihar_iif_data (
+            CREATE TABLE ${DB_TABLE} (
                 id INT PRIMARY KEY,
                 state VARCHAR(50) DEFAULT 'Bihar',
                 country VARCHAR(50) DEFAULT 'India',
@@ -37,10 +38,10 @@ async function run() {
             )
         `;
         await connection.query(createTableQuery);
-        console.log('Table bihar_iif_data updated with new columns.');
+        console.log(`Table ${DB_TABLE} updated with new columns.`);
 
         // 2. Truncate table for fresh import
-        await connection.query('TRUNCATE TABLE bihar_iif_data');
+        await connection.query(`TRUNCATE TABLE ${DB_TABLE}`);
         console.log('Table truncated.');
 
         // 3. Parse CSV and Insert Data
@@ -50,7 +51,7 @@ async function run() {
         const processBatch = async (rows) => {
             if (rows.length === 0) return;
             const query = `
-                INSERT INTO bihar_iif_data (id, state, country, district, block, village_name, latitude, longitude, source, status)
+                INSERT INTO ${DB_TABLE} (id, state, country, district, block, village_name, latitude, longitude, source, status)
                 VALUES ?
             `;
             const values = rows.map(r => [
@@ -75,7 +76,7 @@ async function run() {
         for await (const row of stream) {
             const lat = row.latitude && row.latitude.trim() !== '' ? parseFloat(row.latitude) : null;
             const lon = row.longitude && row.longitude.trim() !== '' ? parseFloat(row.longitude) : null;
-            
+
             let status = 'missing';
             if (lat !== null && lon !== null) {
                 status = 'complete';

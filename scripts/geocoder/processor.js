@@ -1,5 +1,5 @@
 const { TARGET_STATE, DELAY_MS } = require('./config');
-const { sleep, getDistance } = require('./utils');
+const { sleep, getDistance, isWithinBihar } = require('./utils');
 const { searchMaps } = require('./browser');
 const { checkExistingCoords, updateRecordSuccess, updateRecordMulti, updateRecordFailed, fetchPreviousVillageCoords, fetchPreviousBlockCoords } = require('./db');
 
@@ -36,97 +36,169 @@ async function processRecords(connection, page, rows) {
 
         let finalResult = null;
         let finalSource = 'missing';
-        let tier1Status = 'not_found';
+        let tier1Status = row['Church/Orgn Name'] && row['Church/Orgn Name'].trim() !== '' ? 'not_found' : 'skipped';
         let tier2Status = 'not_found';
+        let tier3Status = 'not_found';
+        let tier4Status = 'not_found';
+        let tier5Status = 'not_found';
 
         const block = row.block ? row.block.trim() : '';
         const district = row.district ? row.district.trim() : '';
-        const areaQuery = (block.toLowerCase() === district.toLowerCase() || !block)
-            ? district
-            : `${block}, ${district}`;
+        
+        let areaQuery = '';
+        if (block && district) {
+            if (block.toLowerCase() === district.toLowerCase()) {
+                areaQuery = `${district} District`;
+            } else {
+                areaQuery = `${block} Block, ${district} District`;
+            }
+        } else {
+            areaQuery = district || block || '';
+        }
 
+        // --- TIER 1 & 2: Church & Village baseline ---
         const villageName = row['Village/Town Name'].trim();
         const tier2Query = `${villageName}, ${areaQuery}, ${TARGET_STATE}, India`;
-
-        // Search for Tier 2 (Village) baseline first to verify Tier 1 proximity
         const tier2Result = await searchMaps(page, tier2Query, TARGET_STATE, villageName);
         tier2Status = tier2Result.status;
 
-        // --- TIER 1: Church + Village + Area ---
+        // Verify if in Bihar (if applicable)
+        if (tier2Status === 'success' && TARGET_STATE === 'Bihar' && !isWithinBihar(parseFloat(tier2Result.lat), parseFloat(tier2Result.lon))) {
+            console.log(`    ⚠️ Tier 2 result (${tier2Result.lat}, ${tier2Result.lon}) outside Bihar. Rejecting.`);
+            tier2Status = 'outside_state';
+        }
+
+        // Try Tier 1 (Church) if name exists
         if (row['Church/Orgn Name'] && row['Church/Orgn Name'].trim() !== '') {
             const churchName = row['Church/Orgn Name'].trim();
-            const tier1Query = `${churchName}, ${row['Village/Town Name']}, ${areaQuery}, ${TARGET_STATE}, India`;
-            const tier1Result = await searchMaps(page, tier1Query, TARGET_STATE, churchName);
+            const tier1Query = `${churchName}, ${villageName}, ${areaQuery}, ${TARGET_STATE}, India`;
+            // VERIFY BOTH Church Name and Village Name must be present in the result text
+            const tier1Result = await searchMaps(page, tier1Query, TARGET_STATE, [churchName, villageName]);
             tier1Status = tier1Result.status;
 
             if (tier1Result.status === 'success') {
-                // Verify Proximity to Village center
-                if (tier2Result.status === 'success') {
+                // Verify if in Bihar
+                if (TARGET_STATE === 'Bihar' && !isWithinBihar(parseFloat(tier1Result.lat), parseFloat(tier1Result.lon))) {
+                    console.log(`    ⚠️ Tier 1 result (${tier1Result.lat}, ${tier1Result.lon}) outside Bihar. Rejecting.`);
+                    tier1Status = 'outside_state';
+                } else if (tier2Status === 'success') {
+                    // STRICT CHECK: Must have Tier 2 baseline and be within 2km
                     const dist = getDistance(
                         parseFloat(tier1Result.lat), parseFloat(tier1Result.lon),
                         parseFloat(tier2Result.lat), parseFloat(tier2Result.lon)
                     );
-
-                    if (dist <= 5) { // 5km Threshold
-                        console.log(`    ✅ Tier 1 (Church) hit! (Distance to village: ${dist.toFixed(2)} km)`);
+                    if (dist <= 2) { // Strict 2km threshold
+                        console.log(`    ✅ Tier 1 (Church) hit! (Within village: ${dist.toFixed(2)} km)`);
                         finalResult = tier1Result;
                         finalSource = 'church';
                     } else {
-                        console.log(`    ⚠️ Tier 1 hit but too far from village center (${dist.toFixed(2)} km). Falling back to Tier 2.`);
-                        finalResult = tier2Result;
-                        finalSource = 'village';
+                        console.log(`    ⚠️ Tier 1 hit but too far from village center (${dist.toFixed(2)} km). Falling back.`);
                     }
                 } else {
-                    // Fallback to trusting Tier 1 name match if Village search failed
-                    console.log('    ✅ Tier 1 (Church) hit! (Village baseline unavailable)');
-                    finalResult = tier1Result;
-                    finalSource = 'church';
+                    console.log('    ⚠️ Tier 1 hit but valid village baseline (Tier 2) unavailable for strict verification.');
                 }
             }
         }
 
-        // --- TIER 2: Fallback ---
-        if (!finalResult && tier2Result.status === 'success') {
+        // Tier 2 Fallback: If Tier 1 failed or was far, use Village center
+        if (!finalResult && tier2Status === 'success') {
             console.log('    ✅ Tier 2 (Village) hit!');
             finalResult = tier2Result;
             finalSource = 'village';
         }
 
+        // --- TIER 3: Block Fallback ---
+        let blockCoords = null;
+        const isBlockSameAsDistrict = block.toLowerCase() === district.toLowerCase();
 
+        if ((!finalResult || tier1Status === 'multiple' || tier2Status === 'multiple') && !isBlockSameAsDistrict) {
+            console.log('    ⚠️ Attempting Tier 3 (Block Fallback)...');
+            blockCoords = await fetchPreviousBlockCoords(connection, row.block, row.district);
+            if (blockCoords) {
+                console.log('    ✅ Tier 3 hit! Found block-level data.');
+                tier3Status = 'success';
+            } else {
+                tier3Status = 'not_found';
+            }
+        } else if (isBlockSameAsDistrict) {
+            console.log('    ℹ️ Skipping Tier 3: Block name is same as District name.');
+        }
+
+        // --- TIER 4: Village + District ---
+        if ((!finalResult && !blockCoords) || tier1Status === 'multiple' || tier2Status === 'multiple') {
+            console.log('    ⚠️ Attempting Tier 4 (Village + District)...');
+            const tier4Query = `${villageName}, ${district} District, ${TARGET_STATE}, India`;
+            const tier4Result = await searchMaps(page, tier4Query, TARGET_STATE, villageName);
+            tier4Status = tier4Result.status;
+            
+            if (tier4Result.status === 'success') {
+                if (TARGET_STATE === 'Bihar' && !isWithinBihar(parseFloat(tier4Result.lat), parseFloat(tier4Result.lon))) {
+                    console.log(`    ⚠️ Tier 4 result (${tier4Result.lat}, ${tier4Result.lon}) outside Bihar. Rejecting.`);
+                    tier4Status = 'outside_state';
+                } else {
+                    console.log('    ✅ Tier 4 hit!');
+                    finalResult = tier4Result;
+                    finalSource = 'village-district';
+                }
+            }
+        }
+
+        // --- TIER 5: Village + State ---
+        if ((!finalResult && !blockCoords) || tier4Status === 'multiple' || (tier1Status === 'multiple' && tier4Status !== 'success')) {
+            console.log('    ⚠️ Attempting Tier 5 (Village + State)...');
+            const tier5Query = `${villageName}, ${TARGET_STATE}, India`;
+            const tier5Result = await searchMaps(page, tier5Query, TARGET_STATE, villageName);
+            tier5Status = tier5Result.status;
+
+            if (tier5Result.status === 'success') {
+                if (TARGET_STATE === 'Bihar' && !isWithinBihar(parseFloat(tier5Result.lat), parseFloat(tier5Result.lon))) {
+                    console.log(`    ⚠️ Tier 5 result (${tier5Result.lat}, ${tier5Result.lon}) outside Bihar. Rejecting.`);
+                    tier5Status = 'outside_state';
+                } else {
+                    console.log('    ✅ Tier 5 hit!');
+                    finalResult = tier5Result;
+                    finalSource = 'village-state';
+                }
+            }
+        }
+
+        // --- Final Decision: Use Block Fallback if Google Maps searches failed/multi ---
+        if (!finalResult && blockCoords) {
+            console.log('    ℹ️ Using Tier 3 (Block Fallback) as last successful resort.');
+            finalResult = { lat: blockCoords.latitude, lon: blockCoords.longitude };
+            finalSource = 'block-random';
+        }
 
         // Update Database
         if (finalResult && finalResult.lat && finalResult.lon) {
+            const lat = parseFloat(finalResult.lat);
+            const lon = parseFloat(finalResult.lon);
+
             // --- DUPLICATE CHECK & JITTERING ---
-            const isDuplicate = await checkExistingCoords(connection, finalResult.lat, finalResult.lon);
-            if (isDuplicate) {
-                console.log(`    🔀 Duplicate coordinates detected (Source: ${finalSource}). Applying safe jitter...`);
-                const jittered = await applySafeJitter(connection, finalResult.lat, finalResult.lon, 0.0004);
+            const isDuplicate = await checkExistingCoords(connection, lat, lon);
+            if (isDuplicate || finalSource === 'block-random') {
+                console.log(`    🔀 Applying jitter (Duplicate: ${isDuplicate}, Source: ${finalSource})`);
+                const jitterRange = finalSource === 'block-random' ? 0.005 : 0.0004;
+                const jittered = await applySafeJitter(connection, lat, lon, jitterRange, finalSource === 'block-random');
                 finalResult.lat = jittered.lat;
                 finalResult.lon = jittered.lon;
                 
-                // Mark as random if jittered
                 if (finalSource === 'church') finalSource = 'church-random';
                 else if (finalSource === 'village') finalSource = 'village-random';
+                else if (finalSource === 'village-district') finalSource = 'village-district-random';
+                else if (finalSource === 'village-state') finalSource = 'village-state-random';
             }
 
             await updateRecordSuccess(connection, row.id, finalResult, finalSource);
-            console.log(`    Database updated (Source: ${finalSource}, Multiple: no)`);
+            console.log(`    Database updated (Source: ${finalSource})`);
         } else {
-            // --- TIER 3: Block Fallback for all other failures ---
-            console.log('    ⚠️ Google Maps failed. Attempting Tier 3 (Block Fallback)...');
-            const blockCoords = await fetchPreviousBlockCoords(connection, row.block, row.district);
-
-            if (blockCoords) {
-                console.log('    ✅ Tier 3 hit! Found block-level coordinates. Applying safe jitter...');
-                // Always jitter for block fallback to ensure distribution
-                const jitteredResult = await applySafeJitter(connection, blockCoords.latitude, blockCoords.longitude, 0.005, true);
-                await updateRecordSuccess(connection, row.id, jitteredResult, 'block-random');
-                console.log(`    Database updated (Source: block-random)`);
-            } else if (tier1Status === 'multiple' || tier2Status === 'multiple') {
-                console.log('    ❌ Tier 3 missed. No block-level data found. Marking as multi.');
+            const tierSummary = `T1:${tier1Status}, T2:${tier2Status}, T3:${tier3Status}, T4:${tier4Status}, T5:${tier5Status}`;
+            
+            if (tier1Status === 'multiple' || tier2Status === 'multiple' || tier4Status === 'multiple' || tier5Status === 'multiple') {
+                console.log(`    ❌ All tiers failed or returned multiple results. Marking as multi. (${tierSummary})`);
                 await updateRecordMulti(connection, row.id);
             } else {
-                const errorMsg = `No results found in ${TARGET_STATE} for both tiers and Tier 3 missed`;
+                const errorMsg = `No results found in ${TARGET_STATE} for all tiers (1-5). ${tierSummary}`;
                 console.log(`    ❌ ${errorMsg}`);
                 await updateRecordFailed(connection, row.id, errorMsg);
             }
