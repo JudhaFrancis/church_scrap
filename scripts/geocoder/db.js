@@ -92,6 +92,17 @@ async function fetchPreviousBlockCoords(connection, block, district) {
     return rows.length > 0 ? rows[0] : null;
 }
 
+async function fetchStateBoundary(connection, stateName) {
+    const sql = `
+        SELECT north, south, east, west 
+        FROM state_boundaries 
+        WHERE state_name = ? 
+        LIMIT 1
+    `;
+    const [rows] = await connection.query(sql, [stateName]);
+    return rows.length > 0 ? rows[0] : null;
+}
+
 module.exports = {
     getConnection,
     fetchRecords,
@@ -100,5 +111,6 @@ module.exports = {
     updateRecordMulti,
     updateRecordFailed,
     getStatusCounts,
-    fetchPreviousBlockCoords
+    fetchPreviousBlockCoords,
+    fetchStateBoundary
 };

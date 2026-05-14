@@ -1,22 +1,10 @@
 const { TARGET_STATE, DELAY_MS } = require('./config');
-const { sleep, getDistance, isWithinBihar } = require('./utils');
+const { sleep, getDistance, isPointInBox } = require('./utils');
 const { searchMaps } = require('./browser');
-const { checkExistingCoords, updateRecordSuccess, updateRecordMulti, updateRecordFailed, fetchPreviousVillageCoords, fetchPreviousBlockCoords } = require('./db');
+const { checkExistingCoords, updateRecordSuccess, updateRecordMulti, updateRecordFailed, fetchPreviousVillageCoords, fetchPreviousBlockCoords, fetchStateBoundary } = require('./db');
 
 // Global cache for boundary boxes
 const boundaryCache = {};
-
-function isPointInBox(lat, lon, bounds) {
-    if (!bounds) return false;
-    const pLat = parseFloat(lat);
-    const pLon = parseFloat(lon);
-    return (
-        pLat >= bounds.south &&
-        pLat <= bounds.north &&
-        pLon >= bounds.west &&
-        pLon <= bounds.east
-    );
-}
 
 async function getBoundaryBox(page, name, type, state) {
     const cacheKey = `${type}:${name}:${state}`.toLowerCase();
@@ -29,7 +17,7 @@ async function getBoundaryBox(page, name, type, state) {
     if (result.status === 'success') {
         const lat = parseFloat(result.lat);
         const lon = parseFloat(result.lon);
-        
+
         // Define deltas based on type (rough approximation of bounding boxes)
         let delta = 0.1; // Default (Block)
         if (type === 'District') delta = 0.4;
@@ -42,7 +30,7 @@ async function getBoundaryBox(page, name, type, state) {
             west: lon - delta,
             center: { lat, lon }
         };
-        
+
         boundaryCache[cacheKey] = bounds;
         console.log(`    📍 Boundary cached for ${name} (${type})`);
         return bounds;
@@ -86,10 +74,15 @@ async function processRecords(connection, page, rows) {
         const churchName = row['Church/Orgn Name'] ? row['Church/Orgn Name'].trim() : '';
 
         // Pre-fetch Boundaries
-        const stateBounds = await getBoundaryBox(page, TARGET_STATE, 'State', TARGET_STATE);
+        let stateBounds = await fetchStateBoundary(connection, TARGET_STATE);
+        if (stateBounds) {
+            console.log(`    📍 Loaded ${TARGET_STATE} boundaries from database.`);
+        } else {
+            stateBounds = await getBoundaryBox(page, TARGET_STATE, 'State', TARGET_STATE);
+        }
         const districtBounds = district ? await getBoundaryBox(page, district, 'District', TARGET_STATE) : null;
-        const blockBounds = (block && block.toLowerCase() !== district.toLowerCase()) 
-            ? await getBoundaryBox(page, block, 'Block', TARGET_STATE) 
+        const blockBounds = (block && block.toLowerCase() !== district.toLowerCase())
+            ? await getBoundaryBox(page, block, 'Block', TARGET_STATE)
             : districtBounds;
 
         let finalResult = null;
@@ -105,9 +98,9 @@ async function processRecords(connection, page, rows) {
             tier1Status = tier1Result.status;
 
             if (tier1Result.status === 'success') {
-                const isLocal = isPointInBox(tier1Result.lat, tier1Result.lon, blockBounds) || 
-                               isPointInBox(tier1Result.lat, tier1Result.lon, districtBounds);
-                
+                const isLocal = isPointInBox(tier1Result.lat, tier1Result.lon, blockBounds) ||
+                    isPointInBox(tier1Result.lat, tier1Result.lon, districtBounds);
+
                 if (isLocal) {
                     if (isPointInBox(tier1Result.lat, tier1Result.lon, stateBounds)) {
                         console.log('    ✅ Tier 1 success (Validated in District/Block and State)');
@@ -135,9 +128,9 @@ async function processRecords(connection, page, rows) {
             tier2Status = tier2Result.status;
 
             if (tier2Result.status === 'success') {
-                const isLocal = isPointInBox(tier2Result.lat, tier2Result.lon, blockBounds) || 
-                               isPointInBox(tier2Result.lat, tier2Result.lon, districtBounds);
-                
+                const isLocal = isPointInBox(tier2Result.lat, tier2Result.lon, blockBounds) ||
+                    isPointInBox(tier2Result.lat, tier2Result.lon, districtBounds);
+
                 if (isLocal) {
                     if (isPointInBox(tier2Result.lat, tier2Result.lon, stateBounds)) {
                         console.log('    ✅ Tier 2 success (Validated in District/Block and State)');
@@ -210,7 +203,7 @@ async function processRecords(connection, page, rows) {
                 const jittered = await applySafeJitter(connection, finalResult.lat, finalResult.lon, jitterRange, finalSource === 'block-random');
                 finalResult.lat = jittered.lat;
                 finalResult.lon = jittered.lon;
-                
+
                 if (finalSource === 'church') finalSource = 'church-random';
                 else if (finalSource === 'village') finalSource = 'village-random';
                 else if (finalSource === 'village-district') finalSource = 'village-district-random';
@@ -222,7 +215,7 @@ async function processRecords(connection, page, rows) {
             const tierSummary = `T1:${tier1Status}, T2:${tier2Status}, T3:${tier3Status}, T4:${tier4Status}`;
             const errorMsg = `Validation failed for Tier 1 & 2. ${tierSummary}`;
             console.log(`    ❌ ${errorMsg}`);
-            
+
             if (tier1Status === 'multiple' || tier2Status === 'multiple') {
                 await updateRecordMulti(connection, row.id);
             } else {

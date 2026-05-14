@@ -17,17 +17,25 @@ function getDistance(lat1, lon1, lat2, lon2) {
 }
 
 /**
- * Check if coordinates are within Bihar boundaries
- * Bihar roughly: Lat 24.2 to 27.5, Lon 83.3 to 88.3
+ * Check if coordinates are within a specific bounding box
+ * @param {number|string} lat 
+ * @param {number|string} lon 
+ * @param {Object} bounds {north, south, east, west}
  */
-function isWithinBihar(lat, lon) {
-    const minLat = 24.2, maxLat = 27.5;
-    const minLon = 83.3, maxLon = 88.3;
-    return lat >= minLat && lat <= maxLat && lon >= minLon && lon <= maxLon;
+function isPointInBox(lat, lon, bounds) {
+    if (!bounds) return false;
+    const pLat = parseFloat(lat);
+    const pLon = parseFloat(lon);
+    return (
+        pLat >= bounds.south &&
+        pLat <= bounds.north &&
+        pLon >= bounds.west &&
+        pLon <= bounds.east
+    );
 }
 
 module.exports = {
     sleep,
     getDistance,
-    isWithinBihar
+    isPointInBox
 };
