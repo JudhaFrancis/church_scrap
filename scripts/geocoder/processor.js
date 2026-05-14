@@ -1,7 +1,7 @@
 const { TARGET_STATE, DELAY_MS } = require('./config');
 const { sleep, getDistance, isPointInBox } = require('./utils');
 const { searchMaps } = require('./browser');
-const { checkExistingCoords, updateRecordSuccess, updateRecordMulti, updateRecordFailed, fetchPreviousVillageCoords, fetchPreviousBlockCoords, fetchStateBoundary } = require('./db');
+const { checkExistingCoords, updateRecordSuccess, updateRecordMulti, updateRecordFailed, fetchPreviousVillageCoords, fetchPreviousBlockCoords, fetchStateBoundary, findOriginalRecord, mergeAndSoftDelete } = require('./db');
 
 // Global cache for boundary boxes
 const boundaryCache = {};
@@ -72,6 +72,16 @@ async function processRecords(connection, page, rows) {
         const district = row.district ? row.district.trim() : '';
         const villageName = row['Village/Town Name'].trim();
         const churchName = row['Church/Orgn Name'] ? row['Church/Orgn Name'].trim() : '';
+
+        // --- DUPLICATE DETECTION & MERGING ---
+        if (churchName !== '') {
+            const originalRecord = await findOriginalRecord(connection, row);
+            if (originalRecord) {
+                console.log(`    ♻️ Duplicate found. Merging into ID: ${originalRecord.id} and soft-deleting current record.`);
+                await mergeAndSoftDelete(connection, originalRecord, row);
+                continue; // Skip geocoding for this record
+            }
+        }
 
         // Pre-fetch Boundaries
         let stateBounds = await fetchStateBoundary(connection, TARGET_STATE);

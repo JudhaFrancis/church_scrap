@@ -6,7 +6,11 @@ async function getConnection() {
 }
 
 async function fetchRecords(connection, options) {
-    let sql = `SELECT id, district, block, \`Village/Town Name\`, \`Church/Orgn Name\`, status FROM ${DB_TABLE} WHERE 1=1`;
+    let sql = `
+        SELECT id, district, block, state, \`Village/Town Name\`, \`Church/Orgn Name\`, status, MC, PC, HC 
+        FROM ${DB_TABLE} 
+        WHERE (deleted_at IS NULL OR deleted_at = '')
+    `;
     const params = [];
 
     if (options.start) {
@@ -103,6 +107,63 @@ async function fetchStateBoundary(connection, stateName) {
     return rows.length > 0 ? rows[0] : null;
 }
 
+async function findOriginalRecord(connection, row) {
+    const sql = `
+        SELECT id, MC, PC, HC 
+        FROM ${DB_TABLE} 
+        WHERE \`Church/Orgn Name\` = ? 
+        AND \`Village/Town Name\` = ? 
+        AND block = ? 
+        AND district = ? 
+        AND state = ? 
+        AND id < ? 
+        AND (deleted_at IS NULL OR deleted_at = '')
+        LIMIT 1
+    `;
+    const [rows] = await connection.query(sql, [
+        row['Church/Orgn Name'],
+        row['Village/Town Name'],
+        row.block,
+        row.district,
+        row.state,
+        row.id
+    ]);
+    return rows.length > 0 ? rows[0] : null;
+}
+
+async function mergeAndSoftDelete(connection, originalRow, duplicateRow) {
+    // 1. Merge MC, PC, HC into original if duplicate has them set to 1
+    const updates = [];
+    const params = [];
+
+    if (duplicateRow.MC == 1 && originalRow.MC != 1) {
+        updates.push('MC = 1');
+    }
+    if (duplicateRow.PC == 1 && originalRow.PC != 1) {
+        updates.push('PC = 1');
+    }
+    if (duplicateRow.HC == 1 && originalRow.HC != 1) {
+        updates.push('HC = 1');
+    }
+
+    if (updates.length > 0) {
+        await connection.query(
+            `UPDATE ${DB_TABLE} SET ${updates.join(', ')} WHERE id = ?`,
+            [originalRow.id]
+        );
+    }
+
+    // 2. Soft delete the duplicate
+    await connection.query(
+        `UPDATE ${DB_TABLE} SET 
+            deleted_at = NOW(), 
+            source = ?, 
+            status = 'duplicate' 
+         WHERE id = ?`,
+        [`duplicate - original: ${originalRow.id}`, duplicateRow.id]
+    );
+}
+
 module.exports = {
     getConnection,
     fetchRecords,
@@ -112,5 +173,7 @@ module.exports = {
     updateRecordFailed,
     getStatusCounts,
     fetchPreviousBlockCoords,
-    fetchStateBoundary
+    fetchStateBoundary,
+    findOriginalRecord,
+    mergeAndSoftDelete
 };
