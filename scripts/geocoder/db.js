@@ -9,7 +9,7 @@ async function fetchRecords(connection, options) {
     let sql = `
         SELECT id, district, block, state, \`Village/Town Name\`, \`Church/Orgn Name\`, status, MC, PC, HC 
         FROM ${DB_TABLE} 
-        WHERE (deleted_at IS NULL OR deleted_at = '')
+        WHERE deleted_at IS NULL
     `;
     const params = [];
 
@@ -75,7 +75,7 @@ async function updateRecordFailed(connection, id, errorMsg) {
 }
 
 async function getStatusCounts(connection, options) {
-    let checkSql = `SELECT status, COUNT(*) as count FROM ${DB_TABLE} WHERE 1=1`;
+    let checkSql = `SELECT status, COUNT(*) as count FROM ${DB_TABLE} WHERE deleted_at IS NULL`;
     const checkParams = [];
     if (options.start) { checkSql += ' AND id >= ?'; checkParams.push(options.start); }
     if (options.end) { checkSql += ' AND id <= ?'; checkParams.push(options.end); }
@@ -117,7 +117,7 @@ async function findOriginalRecord(connection, row) {
         AND district = ? 
         AND state = ? 
         AND id < ? 
-        AND (deleted_at IS NULL OR deleted_at = '')
+        AND deleted_at IS NULL
         LIMIT 1
     `;
     const [rows] = await connection.query(sql, [

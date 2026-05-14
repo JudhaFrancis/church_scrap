@@ -103,7 +103,7 @@ async function processRecords(connection, page, rows) {
         // --- TIER 1: Church Search ---
         if (churchName !== '') {
             console.log('    ⚡ Tier 1: Church Search...');
-            const tier1Query = `${churchName}, ${villageName}, ${district}, ${TARGET_STATE}, India`;
+            const tier1Query = `${churchName}, ${villageName}, ${TARGET_STATE}, India`;
             const tier1Result = await searchMaps(page, tier1Query, TARGET_STATE, [churchName, villageName]);
             tier1Status = tier1Result.status;
 
@@ -133,7 +133,7 @@ async function processRecords(connection, page, rows) {
         // --- TIER 2: Village Search (Fallback) ---
         if (!finalResult) {
             console.log('    ⚡ Tier 2: Village Search...');
-            const tier2Query = `${villageName}, ${district}, ${TARGET_STATE}, India`;
+            const tier2Query = `${villageName}, ${TARGET_STATE}, India`;
             const tier2Result = await searchMaps(page, tier2Query, TARGET_STATE, villageName);
             tier2Status = tier2Result.status;
 
@@ -157,73 +157,73 @@ async function processRecords(connection, page, rows) {
             }
         }
 
-        // --- TIER 3: Block DB Fallback ---
-        let blockCoords = null;
+        // --- TIER 3: Block Search ---
         let tier3Status = 'not_found';
         const isBlockSameAsDistrict = block && district && block.toLowerCase() === district.toLowerCase();
 
-        if (!finalResult && !isBlockSameAsDistrict) {
-            console.log('    ⚠️ Tier 3: Block DB Fallback...');
-            blockCoords = await fetchPreviousBlockCoords(connection, block, district);
-            if (blockCoords) {
-                console.log('    ✅ Tier 3 success (Found in DB)');
-                tier3Status = 'success';
-                // Note: Tier 3 uses existing DB coords, usually pre-validated.
-            }
-        }
+        if (!finalResult && !isBlockSameAsDistrict && block !== '') {
+            console.log('    ⚡ Tier 3: Block Search...');
+            const tier3Query = `${block}, ${district}, ${TARGET_STATE}, India`;
+            const tier3Result = await searchMaps(page, tier3Query, TARGET_STATE, block);
+            tier3Status = tier3Result.status;
 
-        // --- TIER 4: Village + District Search ---
-        let tier4Status = 'not_found';
-        if (!finalResult && !blockCoords) {
-            console.log('    ⚡ Tier 4: Village + District Search...');
-            const tier4Query = `${villageName}, ${district} District, ${TARGET_STATE}, India`;
-            const tier4Result = await searchMaps(page, tier4Query, TARGET_STATE, villageName);
-            tier4Status = tier4Result.status;
-
-            if (tier4Result.status === 'success') {
-                const isLocal = isPointInBox(tier4Result.lat, tier4Result.lon, districtBounds);
-                if (isLocal) {
-                    if (isPointInBox(tier4Result.lat, tier4Result.lon, stateBounds)) {
-                        console.log('    ✅ Tier 4 success (Validated in District and State)');
-                        finalResult = tier4Result;
-                        finalSource = 'village-district';
+            if (tier3Result.status === 'success') {
+                if (isPointInBox(tier3Result.lat, tier3Result.lon, districtBounds)) {
+                    if (isPointInBox(tier3Result.lat, tier3Result.lon, stateBounds)) {
+                        console.log('    ✅ Tier 3 success (Validated in District and State)');
+                        finalResult = tier3Result;
+                        finalSource = 'block';
                     } else {
-                        console.log('    ❌ Tier 4 failed: Outside State bounds.');
-                        tier4Status = 'outside_state';
+                        console.log('    ❌ Tier 3 failed: Outside State bounds.');
+                        tier3Status = 'outside_state';
                     }
                 } else {
-                    console.log('    ❌ Tier 4 failed: Outside District bounds.');
-                    tier4Status = 'outside_area';
+                    console.log('    ❌ Tier 3 failed: Outside District bounds.');
+                    tier3Status = 'outside_area';
                 }
             }
         }
 
-        // Final decision: Use Block Fallback if Google Maps failed
-        if (!finalResult && blockCoords) {
-            finalResult = { lat: blockCoords.latitude, lon: blockCoords.longitude };
-            finalSource = 'block-random';
+        // --- TIER 4: District Search ---
+        let tier4Status = 'not_found';
+        if (!finalResult && district !== '') {
+            console.log('    ⚡ Tier 4: District Search...');
+            const tier4Query = `${district}, ${TARGET_STATE}, India`;
+            const tier4Result = await searchMaps(page, tier4Query, TARGET_STATE, district);
+            tier4Status = tier4Result.status;
+
+            if (tier4Result.status === 'success') {
+                if (isPointInBox(tier4Result.lat, tier4Result.lon, stateBounds)) {
+                    console.log('    ✅ Tier 4 success (Validated in State)');
+                    finalResult = tier4Result;
+                    finalSource = 'district';
+                } else {
+                    console.log('    ❌ Tier 4 failed: Outside State bounds.');
+                    tier4Status = 'outside_state';
+                }
+            }
         }
 
         // --- DUPLICATE CHECK & JITTERING ---
         if (finalResult) {
             const isDuplicate = await checkExistingCoords(connection, finalResult.lat, finalResult.lon);
-            if (isDuplicate || finalSource === 'block-random') {
-                console.log(`    🔀 Applying jitter (Duplicate: ${isDuplicate}, Source: ${finalSource})`);
-                const jitterRange = finalSource === 'block-random' ? 0.005 : 0.0004;
-                const jittered = await applySafeJitter(connection, finalResult.lat, finalResult.lon, jitterRange, finalSource === 'block-random');
+            if (isDuplicate) {
+                console.log(`    🔀 Applying jitter (Source: ${finalSource})`);
+                const jittered = await applySafeJitter(connection, finalResult.lat, finalResult.lon, 0.0004);
                 finalResult.lat = jittered.lat;
                 finalResult.lon = jittered.lon;
-
+                
                 if (finalSource === 'church') finalSource = 'church-random';
                 else if (finalSource === 'village') finalSource = 'village-random';
-                else if (finalSource === 'village-district') finalSource = 'village-district-random';
+                else if (finalSource === 'block') finalSource = 'block-random';
+                else if (finalSource === 'district') finalSource = 'district-random';
             }
 
             await updateRecordSuccess(connection, row.id, finalResult, finalSource);
             console.log(`    Database updated (Source: ${finalSource})`);
         } else {
             const tierSummary = `T1:${tier1Status}, T2:${tier2Status}, T3:${tier3Status}, T4:${tier4Status}`;
-            const errorMsg = `Validation failed for Tier 1 & 2. ${tierSummary}`;
+            const errorMsg = `Validation failed for all tiers. ${tierSummary}`;
             console.log(`    ❌ ${errorMsg}`);
 
             if (tier1Status === 'multiple' || tier2Status === 'multiple') {
