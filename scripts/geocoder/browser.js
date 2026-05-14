@@ -34,13 +34,18 @@ async function searchMaps(page, query, targetState, verifyText = null) {
         await page.goto(searchUrl, { waitUntil: 'networkidle2', timeout: 30000 });
         await sleep(4000);
 
+        // Check if it's a list of results
         const isList = await page.evaluate(() => {
             return !!document.querySelector('[role="article"]') || !!document.querySelector('.m67qEc');
         });
 
         if (isList) {
-            console.log(`    ⚠️ Multiple results found. Skipping...`);
-            return { status: 'multiple' };
+            console.log(`    ⚠️ Multiple results found. Selecting first one...`);
+            const firstResult = await page.$('[role="article"], .m67qEc');
+            if (firstResult) {
+                await firstResult.click();
+                await sleep(5000); // Wait for the specific result to load
+            }
         }
 
         const coords = await extractCoords(page);
@@ -59,7 +64,7 @@ async function searchMaps(page, query, targetState, verifyText = null) {
             }, targetState, verifyText);
 
             if (verification.stateMatch && verification.textMatch) {
-                return { status: 'success', ...coords, isMultiple: false };
+                return { status: 'success', ...coords, isMultiple: isList };
             } else if (!verification.stateMatch) {
                 console.log(`    ❌ State mismatch: Result not found in ${targetState}.`);
                 return { status: 'not_found' };
