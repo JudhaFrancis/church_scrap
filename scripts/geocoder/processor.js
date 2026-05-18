@@ -134,25 +134,30 @@ async function processRecords(connection, page, rows) {
         if (!finalResult) {
             console.log('    ⚡ Tier 2: Village Search...');
             const tier2Query = `${villageName}, ${TARGET_STATE}, India`;
-            const tier2Result = await searchMaps(page, tier2Query, TARGET_STATE, villageName);
+            const tier2Result = await searchMaps(page, tier2Query, TARGET_STATE, villageName, [district, block]);
             tier2Status = tier2Result.status;
 
             if (tier2Result.status === 'success') {
                 const isLocal = isPointInBox(tier2Result.lat, tier2Result.lon, blockBounds) ||
                     isPointInBox(tier2Result.lat, tier2Result.lon, districtBounds);
+                const isInState = isPointInBox(tier2Result.lat, tier2Result.lon, stateBounds);
 
-                if (isLocal) {
-                    if (isPointInBox(tier2Result.lat, tier2Result.lon, stateBounds)) {
+                if (isInState) {
+                    if (isLocal) {
                         console.log('    ✅ Tier 2 success (Validated in District/Block and State)');
                         finalResult = tier2Result;
                         finalSource = 'village';
+                    } else if (tier2Result.isExactMatch) {
+                        console.log('    ✅ Tier 2 success (Outside local bounds, but Exact Name Match in State)');
+                        finalResult = tier2Result;
+                        finalSource = 'village';
                     } else {
-                        console.log('    ❌ Tier 2 failed: Outside State bounds.');
-                        tier2Status = 'outside_state';
+                        console.log('    ❌ Tier 2 failed: Outside District/Block bounds and not an exact name match.');
+                        tier2Status = 'outside_area';
                     }
                 } else {
-                    console.log('    ❌ Tier 2 failed: Outside District/Block bounds.');
-                    tier2Status = 'outside_area';
+                    console.log('    ❌ Tier 2 failed: Outside State bounds.');
+                    tier2Status = 'outside_state';
                 }
             }
         }
@@ -212,7 +217,7 @@ async function processRecords(connection, page, rows) {
                 const jittered = await applySafeJitter(connection, finalResult.lat, finalResult.lon, 0.0004);
                 finalResult.lat = jittered.lat;
                 finalResult.lon = jittered.lon;
-                
+
                 if (finalSource === 'church') finalSource = 'church-random';
                 else if (finalSource === 'village') finalSource = 'village-random';
                 else if (finalSource === 'block') finalSource = 'block-random';
